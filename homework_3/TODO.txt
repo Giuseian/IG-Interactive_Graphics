@@ -1,0 +1,22 @@
+# TO DO 
+
+In this project, we will render a 3D triangular mesh with a texture on the GPU using WebGL. 
+
+STEP 1: 
+Implement the JavaScript function that computes the 4x4 transformation matrix, including perspective projection. 
+We should find in which order we should combine transformation matrices, including a translation and two rotations, so to have a perspective projection. 
+-> function GetModelViewProjection
+
+
+STEP 2 : 
+Render a triangular mesh using WebGL. 
+The triangular mesh is loaded from an OBJ file using the UI. 
+The OBJ parser is already implemented. The given code includes triangulation and scaling to form a triangular mesh that fits inside the box. 
+We will complete the MeshDrawer class. 
+
+The MeshDrawer class includes the following methods : 
+- setMesh , takes an array of 3D vertex positions and an array of 2D texture coordinates. It is called everytime the user loads another OBJ file, so it can be called multiple times.
+- swapYZ , determines if y and z axes should be swapped while rendering 
+- draw, responsible for drawing / rendering the triangular mesh 
+- setTexture, called to set the Texture of the object 
+- showTexture, called to specify whether the texture should be displayed 

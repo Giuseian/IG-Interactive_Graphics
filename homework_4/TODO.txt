@@ -1,0 +1,17 @@
+# TO DO 
+
+We will add shading to the WebGL-based triangular mesh rendered implemented in the previous project. 
+Addition to the previous MeshDrawer :
+- The setMesh method also takes a list of vertex normals. These vertex normals should be sent to the vertex shader as another attribute. 
+  setMesh(vertPos, texCoords, normals)
+- The draw method now takes the three matrices : a 4x4 model-view-projection matrix, a 4x4 model-view matrix, and a 3x3 transformation matrix, all stored in column-major order. 
+  The view matrix and the normal transformation matrix should be used for transforming object-space vertex positions and normals to the camera space, where we can perform shading 
+  draw( matrixMVP, matrixMV, matrixNormal )
+- The new setLightDir method is called by the interface for setting the light direction in the camera space. 
+  setLightDir( x, y, z)
+- The new setShininess method is called by the interface for setting the shininess parameter of the Blinn material model 
+  setShininess( shininess )
+
+Moreover,
+- The GetModelViewProjection function from the previous project is replaced with the new GetModelViewMatrix function. This does not take the projection matrix as an argument, and so returns the part of transformation prior to projection. 
+  GetModelViewMatrix( translationX, translationY, translationZ, rotationX, rotationY)

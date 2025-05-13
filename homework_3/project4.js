@@ -5,11 +5,8 @@
 // You can use the MatrixMult function defined in project4.html to multiply two 4x4 matrices in the same format.
 
 function GetModelViewProjection( projectionMatrix, translationX, translationY, translationZ, rotationX, rotationY )
-{
-	// [TO-DO] Modify the code below to form the transformation matrix.
-	
-	// projectionMatrix is a 4x4 matrix stored as an array in column-major order -> 1D array of 16 elements !
-
+{	
+    // Translation matrix
 	var trans = [
 		1, 0, 0, 0,
 		0, 1, 0, 0,
@@ -17,7 +14,7 @@ function GetModelViewProjection( projectionMatrix, translationX, translationY, t
 		translationX, translationY, translationZ, 1
 	];
 
-
+    // Rotation matrices 
 	var rotationXMatrix = [
  		1, 0, 0, 0,
 		0, Math.cos(rotationX), -Math.sin(rotationX), 0,
@@ -33,7 +30,7 @@ function GetModelViewProjection( projectionMatrix, translationX, translationY, t
 	];
 	
 
-	var mvp = MatrixMult( projectionMatrix, trans );   // 4x4 transformation matrix stored as an array in column-major order -> 1D array of 16 elements ! 
+	var mvp = MatrixMult( projectionMatrix, trans );  
 	mvp = MatrixMult( mvp, rotationYMatrix );
 	mvp = MatrixMult( mvp, rotationXMatrix );
 	return mvp;
@@ -44,8 +41,9 @@ function GetModelViewProjection( projectionMatrix, translationX, translationY, t
 
 class MeshDrawer {
 
+    // The constructor is a good place for taking care of the necessary initializations.
     constructor() {
-        // Compile the shader program
+        // Shader program
         this.prog = InitShaderProgram(meshVS, meshFS);
 
         // Get uniform locations
@@ -69,6 +67,17 @@ class MeshDrawer {
         this.showTextureState = false;
     }
 
+
+    // This method is called every time the user opens an OBJ file.
+	// The arguments of this function is an array of 3D vertex positions
+	// and an array of 2D texture coordinates.
+	// Every item in these arrays is a floating point value, representing one
+	// coordinate of the vertex position or texture coordinate.
+	// Every three consecutive elements in the vertPos array forms one vertex
+	// position and every three consecutive vertex positions form a triangle.
+	// Similarly, every two consecutive elements in the texCoords array
+	// form the texture coordinate of a vertex.
+	// Note that this method can be called multiple times.
     setMesh(vertPos, texCoords) {
         this.numTriangles = vertPos.length / 3;
 
@@ -81,13 +90,17 @@ class MeshDrawer {
         gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(texCoords), gl.STATIC_DRAW);
     }
 
+    // This method is called when the user changes the state of the
+	// "Swap Y-Z Axes" checkbox. 
+	// The argument is a boolean that indicates if the checkbox is checked.
     swapYZ(swap) {
         this.swapYZState = swap;
     }
 
 
-
-
+    // This method is called to draw the triangular mesh.
+	// The argument is the transformation matrix, the same matrix returned
+	// by the GetModelViewProjection function above.
     draw(trans) {
         gl.useProgram(this.prog);
         gl.uniformMatrix4fv(this.mvp, false, trans);
@@ -109,7 +122,8 @@ class MeshDrawer {
     }
 
 
-
+    // This method is called to set the texture of the mesh.
+	// The argument is an HTML IMG element containing the texture data.
     setTexture(img) {
         gl.bindTexture(gl.TEXTURE_2D, this.texture);
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, img);
@@ -123,8 +137,9 @@ class MeshDrawer {
     }
 
 
-
-
+    // This method is called when the user changes the state of the
+	// "Show Texture" checkbox. 
+	// The argument is a boolean that indicates if the checkbox is checked.
     showTexture(show) {
         this.showTextureState = show;
     }

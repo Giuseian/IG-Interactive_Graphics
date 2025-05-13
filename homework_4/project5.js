@@ -4,6 +4,7 @@
 // You can use the MatrixMult function defined in project5.html to multiply two 4x4 matrices in the same format.
 function GetModelViewMatrix( translationX, translationY, translationZ, rotationX, rotationY )
 {
+    // Translation matrix
     var trans = [
         1, 0, 0, 0,
         0, 1, 0, 0,
@@ -11,6 +12,7 @@ function GetModelViewMatrix( translationX, translationY, translationZ, rotationX
         translationX, translationY, translationZ, 1
     ];
 
+    // Rotation matrices
     var rotationXmatrix = [
         1, 0, 0, 0,
         0, Math.cos(rotationX), -Math.sin(rotationX), 0,
@@ -34,6 +36,7 @@ function GetModelViewMatrix( translationX, translationY, translationZ, rotationX
 
 class MeshDrawer {
 
+    // The constructor is a good place for taking care of the necessary initializations.
     constructor() {
         this.prog = InitShaderProgram(meshVS, meshFS);
         this.mvp = gl.getUniformLocation(this.prog, 'matrixMVP');
@@ -55,6 +58,17 @@ class MeshDrawer {
         this.showTextureState = false;
     }
 
+    // This method is called every time the user opens an OBJ file.
+	// The arguments of this function is an array of 3D vertex positions,
+	// an array of 2D texture coordinates, and an array of vertex normals.
+	// Every item in these arrays is a floating point value, representing one
+	// coordinate of the vertex position or texture coordinate.
+	// Every three consecutive elements in the vertPos array forms one vertex
+	// position and every three consecutive vertex positions form a triangle.
+	// Similarly, every two consecutive elements in the texCoords array
+	// form the texture coordinate of a vertex and every three consecutive 
+	// elements in the normals array form a vertex normal.
+	// Note that this method can be called multiple times.
     setMesh(vertPos, texCoords, normals) {
         this.numTriangles = vertPos.length / 3;
 
@@ -69,11 +83,19 @@ class MeshDrawer {
     }
 
 
+    // This method is called when the user changes the state of the
+	// "Swap Y-Z Axes" checkbox. 
+	// The argument is a boolean that indicates if the checkbox is checked.
 	swapYZ(swap) {
 		this.swapYZState = swap;
 	}
 
 
+    // This method is called to draw the triangular mesh.
+	// The arguments are the model-view-projection transformation matrixMVP,
+	// the model-view transformation matrixMV, the same matrix returned
+	// by the GetModelViewProjection function above, and the normal
+	// transformation matrix, which is the inverse-transpose of matrixMV.
 	draw(matrixMVP, matrixMV, matrixNormal) {
         gl.useProgram(this.prog);
 
@@ -98,7 +120,8 @@ class MeshDrawer {
         gl.drawArrays(gl.TRIANGLES, 0, this.numTriangles);
     }
 
-
+    // This method is called to set the texture of the mesh.
+	// The argument is an HTML IMG element containing the texture data.
 	setTexture(img) {
         gl.bindTexture(gl.TEXTURE_2D, this.texture);
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, img);
@@ -111,16 +134,21 @@ class MeshDrawer {
         this.showTexture(true);
     }
 
+    // This method is called when the user changes the state of the
+	// "Show Texture" checkbox. 
+	// The argument is a boolean that indicates if the checkbox is checked.
     showTexture(show) {
         this.showTextureState = show;
     }
 
 
+    // This method is called to set the incoming light direction
     setLightDir(x, y, z) {
         gl.useProgram(this.prog);
         gl.uniform3f(this.lightDir, x, y, z);
     }
 
+    // This method is called to set the shininess of the material
     setShininess(shininess) {
         gl.useProgram(this.prog);
         gl.uniform1f(this.shininess, shininess);

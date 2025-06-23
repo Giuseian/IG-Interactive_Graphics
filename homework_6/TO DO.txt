@@ -1,0 +1,38 @@
+# TO DO 
+
+We will implement a physically-based simulation using a mass-spring system. 
+1. We have to implement a time stepping function : function(dt, positions, velocities, springs, stiffness, damping, particleMass, gravity). 
+2. We have to copy/paste the entire code developed for project4_shading to handle the display and shading functionalities. 
+
+About the SimTimeStep functin: 
+- args :
+1. dt : time step size 
+2. positions : mass particle positions 
+3. velocities : mass particle velocities 
+4. spings 
+5. stiffness, damping, particleMass, gravity : other simulation parameters 
+
+Its job is to update the positions and velocities arrays that initially contain values at the beginning of the time step and set them to the values at the end of the time step. 
+
+- positions and velocities contain one 3D vector object of JS class Vec3 per mass particle. 
+- Vec3 class includes the following methods : 
+  - init(x, y, z) : sets the x, y, and z coordinates to the given values. 
+  - copy() : returns a copy of the vector object. 
+  - set(v) : sets the x, y, and z coordinates to the same values as the given vector v. 
+  - inc(v) : : increments the x, y, and z coordinate values by adding the coordinate values of the given vector v. 
+  - dec(v) : decrements the x,y,z coordinates by subtracting the coordin
+  - scale(f) : multiplies the x,y,z coordinates by the given scalar f 
+  - add(v) : dd the given vector v to this vector 
+  - sub(v) : substracts the given vector v from this vector 
+  - dot(v) : computes the dot product of this vector and the given vector v and returns resulting scalar 
+  - cross(v) : computes the cross product of this vector and the given vector v and returns resulting vector 
+  - mul(f) : multiplies the vector by the given scalar f and returns the result 
+  - div(f) : divides the vector by the given scalar f and returns the result 
+  - len2() : returns the squared length of the vector 
+  - len() : returns the length of the vector 
+  - unit() : returns the unit vector along the direction of this vector
+  - normalize() : normalize this vector, turning it into a unit vector 
+- springs has an object per spring that contains the indices of the two particles it connects (p0 and p1) and the its rest length 
+
+The collision box is a cube centered at the origin with an edge length of 2 units. Thus, it extends from -1 to 1 in all three dimensions. 
+The simulated object must remain inside this box and collide againts its walls. 

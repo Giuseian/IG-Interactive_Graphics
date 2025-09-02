@@ -117,44 +117,69 @@ let _autoCycle  = true;
 const ATTACK_RADIUS  = 3.2;   // m (XZ)
 const DPS_PER_GHOST  = 0.12;  // health(0..1)/sec
 
-/* =========================================================================================
- *                                   NOISE GLSL & PATCH FOG
- * =======================================================================================*/
+// /* =========================================================================================
+//  *                                   NOISE GLSL & PATCH FOG
+//  * =======================================================================================*/
+
+// Noise GLSL è usato per dare alla nebbia un aspetto più organico e naturale. 
+// Si classifica come variante del Perlin Noise, ed è chiamata simplex noise 3D 
 const NOISE_GLSL = `
-vec3 mod289(vec3 x){return x - floor(x*(1.0/289.0))*289.0;}
+// riporta i valori entro un range finito 
+vec3 mod289(vec3 x){return x - floor(x*(1.0/289.0))*289.0;}  
 vec4 mod289(vec4 x){return x - floor(x*(1.0/289.0))*289.0;}
+
+// prende un valore e lo mescola con un polinomio, generando un indice pseudo-causale per selezionare i gradienti
 vec4 permute(vec4 x){return mod289(((x*34.0)+1.0)*x);}
+
+// approssimazione per normalizzare più gradienti in parallelo 
 vec4 taylorInvSqrt(vec4 r){return 1.79284291400159 - 0.85373472095314 * r;}
+
+// snoise prende un punto nello spazio 3D e restituisce un valore di rumore continuo tra [-1, 1]  
 float snoise(vec3 v){
   const vec2 C=vec2(1.0/6.0,1.0/3.0); const vec4 D=vec4(0.0,0.5,1.0,2.0);
-  vec3 i=floor(v+dot(v,C.yyy)); vec3 x0=v-i+dot(i,C.xxx);
-  vec3 g=step(x0.yzx,x0.xyz); vec3 l=1.0-g; vec3 i1=min(g.xyz,l.zxy); vec3 i2=max(g.xyz,l.zxy);
-  vec3 x1=x0-i1+C.xxx; vec3 x2=x0-i2+C.yyy; vec3 x3=x0-D.yyy; i=mod289(i);
-  vec4 p=permute(permute(permute(i.z+vec4(0.0,i1.z,i2.z,1.0))+i.y+vec4(0.0,i1.y,i2.y,1.0))+i.x+vec4(0.0,i1.x,i2.x,1.0));
-  float n_=0.142857142857; vec3 ns=n_*D.wyz - D.xzx;
+  vec3 i=floor(v+dot(v,C.yyy)); vec3 x0=v-i+dot(i,C.xxx); // Skewing : determina quale tetraedro contiene il punto; offset del punto dentro il tetraedro 
+  vec3 g=step(x0.yzx,x0.xyz); vec3 l=1.0-g; vec3 i1=min(g.xyz,l.zxy); vec3 i2=max(g.xyz,l.zxy);  // g : determina quale lato del tetraedro è più vicino; indici dei vertici extra per completare il simplex 
+  vec3 x1=x0-i1+C.xxx; vec3 x2=x0-i2+C.yyy; vec3 x3=x0-D.yyy; i=mod289(i);  // Coordinate dei quattro vertici del tetraedro 
+  
+  // Genera gradienti pseudo-casuali per i 4 vertici 
+  vec4 p=permute(permute(permute(i.z+vec4(0.0,i1.z,i2.z,1.0))+i.y+vec4(0.0,i1.y,i2.y,1.0))+i.x+vec4(0.0,i1.x,i2.x,1.0));   
+  float n_=0.142857142857; vec3 ns=n_*D.wyz - D.xzx;  // Scaling delle costanti 
+  
+  // Decomposizione per calcolare coordinate random 
   vec4 j=p-49.0*floor(p*ns.z*ns.z); vec4 x_=floor(j*ns.z); vec4 y_=floor(j-7.0*x_);
-  vec4 x=x_*ns.x+ns.yyyy; vec4 y=y_*ns.x+ns.yyyy; vec4 h=1.0-abs(x)-abs(y);
+  vec4 x=x_*ns.x+ns.yyyy; vec4 y=y_*ns.x+ns.yyyy; vec4 h=1.0-abs(x)-abs(y);  // Gradienti normalizzati sul tetraedro 
+
+  // Determina segno dei gradienti 
   vec4 b0=vec4(x.xy,y.xy); vec4 b1=vec4(x.zw,y.zw); vec4 s0=floor(b0)*2.0+1.0; vec4 s1=floor(b1)*2.0+1.0; vec4 sh=-step(h,vec4(0.0));
-  vec4 a0=b0.xzyw+s0.xzyw*sh.xxyy; vec4 a1=b1.xzyw+s1.xzyw*sh.zzww;
+  vec4 a0=b0.xzyw+s0.xzyw*sh.xxyy; vec4 a1=b1.xzyw+s1.xzyw*sh.zzww;  // Applica correzioni di segno 
+  
+  // Gradienti finali per i 4 vertici 
   vec3 p0=vec3(a0.xy,h.x); vec3 p1=vec3(a1.xy,h.y); vec3 p2=vec3(a1.xy,h.z); vec3 p3=vec3(a1.zw,h.w);
+  
+  // Normalizza i gradienti 
   vec4 norm=taylorInvSqrt(vec4(dot(p0,p0),dot(p1,p1),dot(p2,p2),dot(p3,p3)));
+  
+  // Fattori di attenuazione in base alla distanza 
   p0*=norm.x; p1*=norm.y; p2*=norm.z; p3*=norm.w;
   vec4 m=max(0.5-vec4(dot(x0,x0),dot(x1,x1),dot(x2,x2),dot(x3,x3)),0.0); m=m*m;
+  
+  // Somma pesata -> valore finale del noise 
   return 105.0*dot(m*m,vec4(dot(p0,x0),dot(p1,x1),dot(p2,p2),dot(p3,p3)));
 }
+// Fractal Brownian Motion : somma più ottave di simplex noise 
 float FBM(vec3 p){ float v=0.0,a=0.5; for(int i=0;i<6;i++){ v+=a*snoise(p); p*=2.0; a*=0.5; } return v; }
 `;
 
 // Patch fog chunks (aggiunge vFogWorldPos e uniforms custom)
 THREE.ShaderChunk.fog_pars_vertex = `
 #ifdef USE_FOG
-  varying vec3 vFogWorldPos;
+  varying vec3 vFogWorldPos;  // posizione mondo 
 #endif
 `;
 THREE.ShaderChunk.fog_vertex = `
 #ifdef USE_FOG
   vec3 posW = (modelMatrix * vec4( transformed, 1.0 )).xyz;
-  vFogWorldPos = posW;
+  vFogWorldPos = posW;   // passa posizione mondo al fragment 
 #endif
 `;
 THREE.ShaderChunk.fog_pars_fragment = NOISE_GLSL + `
@@ -177,19 +202,20 @@ THREE.ShaderChunk.fog_pars_fragment = NOISE_GLSL + `
 `;
 THREE.ShaderChunk.fog_fragment = `
 #ifdef USE_FOG
-  vec3  fogOrigin = cameraPosition;
-  vec3  dir  = normalize(vFogWorldPos - fogOrigin);
-  float dist = distance(vFogWorldPos, fogOrigin);
+  vec3  fogOrigin = cameraPosition;  // origine = camera 
+  vec3  dir  = normalize(vFogWorldPos - fogOrigin);  // direzione raggio 
+  float dist = distance(vFogWorldPos, fogOrigin);  // direzione punto-camera 
 
   // vento: drift diagonale XZ
   vec2 wind = normalize(vec2(0.7, 0.3));
   vec3 sampleP = vFogWorldPos * 0.00025
                + vec3(wind.x, 0.0, wind.y) * (fogTime * fogTimeSpeed * 0.025);
+  // punto di campionamento per il rumore, scala + translazione nel tempo 
 
   float n = FBM(sampleP + FBM(sampleP));
-  n = mix(1.0, n*0.5 + 0.5, clamp(fogNoise, 0.0, 1.0));
+  n = mix(1.0, n*0.5 + 0.5, clamp(fogNoise, 0.0, 1.0)); // modula l'effetto della fog col rumore 
 
-  // base exp2 + height fog
+  // base exp2 + height fog -> fog con distanza + fog con altezza 
   float dcurve  = pow(dist, 1.2);
   float baseExp = 1.0 - exp(-dcurve * fogDensity * (0.85 + fogNearBoost));
   float y = dir.y; if (abs(y) < 1e-4) y = (y < 0.0 ? -1.0 : 1.0) * 1e-4;
@@ -197,28 +223,33 @@ THREE.ShaderChunk.fog_fragment = `
   float heightFog = fogHeightFactor * exp(-fogOrigin.y * fogDensity) *
                     (1.0 - exp(-dcurve * y * fogDensity)) / y;
 
+  // mescola i contributi e modula con il rumore 
   float fogFactor = clamp( mix(heightFog, heightFog + baseExp*0.85, 0.8) * n, 0.0, 1.0 );
 
-  // gap map → più piena negli spazi aperti
+  // gap map → più piena negli spazi aperti -> aumenta la fog dove la mappa dice "vuoto"
   vec2  uv  = vFogWorldPos.xz * fogMapST.xy + fogMapST.zw;
   float gap = texture2D(fogGapMap, uv).r;
   float gapAdd = fogGapBoost * gap * (1.0 - fogFactor);
   fogFactor = clamp(fogFactor + gapAdd, 0.0, 1.0);
 
-  // haze laterale (radente all’orizzonte)
+  // haze laterale (radente all’orizzonte) -> cresce in distanza all'orizzonte e decresce in altezza 
   float distXZ        = length(vFogWorldPos.xz - fogOrigin.xz);
   float groundFalloff = exp( -max(0.0, vFogWorldPos.y) / max(1.0, fogLateralHeight) );
   float sideWeight    = smoothstep(32.0, max(32.0, fogLateralRadius), distXZ);
   float lateralHaze   = fogLateralBoost * groundFalloff * sideWeight;
   lateralHaze *= fogLateralMul;
 
-  // soft-union
+  // soft-union  (fusione morbida)
   fogFactor = 1.0 - (1.0 - fogFactor) * (1.0 - lateralHaze);
   fogFactor = clamp(fogFactor, 0.0, 1.0);
 
   gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, fogFactor);
+  // mix finale tra colore materiale e fogColor 
 #endif
 `;
+
+
+
 
 /* =========================================================================================
  *                                   UTILITY
@@ -460,43 +491,43 @@ function resumeGame() {
  *                                   DAY/NIGHT
  * =======================================================================================*/
 function applyDayNight(night) { _dnTarget = night ? 1 : 0; }
-function updateDayNight(dt) {
+function updateDayNight(dt) {   // Aggiorna lo stato giorno notte in base a dt 
   if (!sun || !ambient || !scene || !_skyFogDome || !renderer) return;
 
-  if (_dnLerp !== _dnTarget) {
-    const step = dt / DN_FADE_SECS;
-    _dnLerp = (_dnTarget > _dnLerp) ? Math.min(1, _dnLerp + step) : Math.max(0, _dnLerp - step);
+  if (_dnLerp !== _dnTarget) {  // se il valore corrente non ha ancora raggiunto il target 
+    const step = dt / DN_FADE_SECS;   // calcola di quanto avvicinarsi al target (giorno / notte)
+    _dnLerp = (_dnTarget > _dnLerp) ? Math.min(1, _dnLerp + step) : Math.max(0, _dnLerp - step);  // Porta dnLerp verso il target con step costante 
   }
-  const k0 = _dnLerp;
-  const k  = k0 * k0 * (3 - 2 * k0);
+  const k0 = _dnLerp;   // interpolatore grezzo
+  const k  = k0 * k0 * (3 - 2 * k0);   // k : smoothstep per transizione 
 
   const COL_DAY   = new THREE.Color(0xDFE9F3);
   const COL_NIGHT = new THREE.Color(0x0a1220);
-  const fogCol    = COL_DAY.clone().lerp(COL_NIGHT, k);
+  const fogCol    = COL_DAY.clone().lerp(COL_NIGHT, k);  // Interpola il colore nebbia/cielo in base a k 
 
-  scene.fog.color.copy(fogCol);
-  const mat = _skyFogDome.material;
+  scene.fog.color.copy(fogCol);  // aggiorna il colore della fog della scena 
+  const mat = _skyFogDome.material;   // materiale dome (cupola) del cielo 
   mat.color.copy(fogCol);
   mat.depthWrite = false; mat.depthTest = false;
   _skyFogDome.renderOrder = -1000;
 
-  ambient.intensity = THREE.MathUtils.lerp(0.35, 0.18, k);
-  sun.intensity     = THREE.MathUtils.lerp(1.00, 0.35, k);
-  sun.color.set(0xffe6b3).lerp(new THREE.Color(0x9fbfff), k);
+  ambient.intensity = THREE.MathUtils.lerp(0.35, 0.18, k);   // luce ambientale diminuisce passando alla notte 
+  sun.intensity     = THREE.MathUtils.lerp(1.00, 0.35, k);   // luce del sole si attenua verso la notte
+  sun.color.set(0xffe6b3).lerp(new THREE.Color(0x9fbfff), k);  // passaggio caldo freddo 
 
-  renderer.toneMappingExposure = THREE.MathUtils.lerp(1.00, 0.90, k);
+  renderer.toneMappingExposure = THREE.MathUtils.lerp(1.00, 0.90, k);   // esposizione globale si abbassa di notte 
   renderer.setClearColor(fogCol.getHex(), 1);
 
-  const elevDay = THREE.MathUtils.degToRad(55);
-  const elevNight = THREE.MathUtils.degToRad(-20);
-  const elev = THREE.MathUtils.lerp(elevDay, elevNight, k);
-  const azim = THREE.MathUtils.degToRad(45);
-  const R = 300;
-  const y = Math.sin(elev) * R;
-  const xz = Math.cos(elev) * R;
-  sun.position.set(Math.cos(azim) * xz, y, Math.sin(azim) * xz);
+  const elevDay = THREE.MathUtils.degToRad(55);   // elevazione sole di giorno 
+  const elevNight = THREE.MathUtils.degToRad(-20);   // elevazione sole di notte 
+  const elev = THREE.MathUtils.lerp(elevDay, elevNight, k);  // interpolazione dell'elevazione in base a k 
+  const azim = THREE.MathUtils.degToRad(45);   // Azimut del sole 
+  const R = 300;  // raggio fittizio dell'orbita per posizionare la DirectionalLight 
+  const y = Math.sin(elev) * R;  // Componente verticale in base all'elevazione 
+  const xz = Math.cos(elev) * R;   // Proiezione sul piano xz 
+  sun.position.set(Math.cos(azim) * xz, y, Math.sin(azim) * xz);   // aggiorna posizione della directional light 
 
-  const nowNight = (k >= 0.5);
+  const nowNight = (k >= 0.5);  // se metà transizione è superata, considera notte 
   if (nowNight !== _isNight) { _isNight = nowNight; hud?.setDayNightIcon?.(_isNight); }
 
   if (_autoCycle) {

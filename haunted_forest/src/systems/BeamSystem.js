@@ -41,44 +41,44 @@ export class BeamSystem {
 
     // --- Stato beam
     this.enabled    = true;
-    this.firing     = false;
-    this.overheated = false;
-    this.heat       = 0;
+    this.firing     = false;  // stai sparando ? 
+    this.overheated = false;  // è in surriscaldamento ? 
+    this.heat       = 0;  // valore di calore 
 
     // --- Parametri gameplay
-    this.halfAngleDeg = opts.halfAngleDeg ?? 20;
-    this.maxRange     = opts.maxRange     ?? 260;
-    this.exposureRate = opts.exposureRate ?? 4.0;
+    this.halfAngleDeg = opts.halfAngleDeg ?? 20;    // mezzo angolo del cono 
+    this.maxRange     = opts.maxRange     ?? 260;   // portata massima 
+    this.exposureRate = opts.exposureRate ?? 4.0;   // quanto velocemente cresce l'esposizione dei Ghost 
 
     // --- Overheat
-    this.heatRise   = opts.heatRise   ?? 0.8;
-    this.heatFall   = opts.heatFall   ?? 0.7;
-    this.overheatHi = opts.overheatHi ?? 1.0;
-    this.overheatLo = opts.overheatLo ?? 0.6;
+    this.heatRise   = opts.heatRise   ?? 0.8;  // salita del calore
+    this.heatFall   = opts.heatFall   ?? 0.7;  // discesa del calore
+    this.overheatHi = opts.overheatHi ?? 1.0;  // soglia di overheat -> oltre questa si blocca il fuoco 
+    this.overheatLo = opts.overheatLo ?? 0.6;  // ripristino da overheat -> sotto questa, si sblocca 
 
     // --- Smoothing
-    this.smoothTau = opts.smoothTau ?? 0.12; // s; 0 = no smoothing
+    this.smoothTau = opts.smoothTau ?? 0.12; // s; 0 = no smoothing -> costante di tempo per smussare sia posizione dell'apice che orientamento del raggio 
 
     // --- Gimbal (offset rispetto alla camera, controllati dal mouse quando aiming=true)
-    this.aiming       = false;
+    this.aiming       = false;   // stato : sto mirando ? 
     this.yawOffset    = 0; // rad
     this.pitchOffset  = 0; // rad
     this.yawLimitDeg   = opts.yawLimitDeg   ?? 35; // ±
     this.pitchLimitDeg = opts.pitchLimitDeg ?? 25; // ±
-    this.sensX = opts.sensX ?? 0.0018; // rad/px
-    this.sensY = opts.sensY ?? 0.0016; // rad/px
-    this.recenterTau = opts.recenterTau ?? 0.22;
+    this.sensX = opts.sensX ?? 0.0018; // rad/px -> sensibilità mouse X
+    this.sensY = opts.sensY ?? 0.0016; // rad/px -> sensibilità mouse Y
+    this.recenterTau = opts.recenterTau ?? 0.22;  // tempo di rientro offset fuori mira 
 
     // --- Ostacoli per la linea di vista (facoltativi)
-    this.obstacles = opts.obstacles || [];
+    this.obstacles = opts.obstacles || [];   // lista degli oggetti per i raycast 
 
     // --- Cache / scratch
-    this._cosHalf   = Math.cos(THREE.MathUtils.degToRad(this.halfAngleDeg));
-    this._ray       = new THREE.Raycaster();
+    this._cosHalf   = Math.cos(THREE.MathUtils.degToRad(this.halfAngleDeg));  // precalcolo del coseno del mezzo-angolo 
+    this._ray       = new THREE.Raycaster();  // raycaster riusato per la line of sight  
     this._tmpV      = new THREE.Vector3();
     this._rightCam  = new THREE.Vector3(1, 0, 0);
-    this._fwdSmooth = new THREE.Vector3(0, 0, -1);
-    this._posSmooth = new THREE.Vector3();
+    this._fwdSmooth = new THREE.Vector3(0, 0, -1);  // forward del beam smussata 
+    this._posSmooth = new THREE.Vector3();  // posizione apice smussata  
     this._upNeg     = new THREE.Vector3(0, -1, 0); // -Y (serve per allineare il cono)
 
     // Quaternion smussata del beam + appoggi
@@ -88,15 +88,15 @@ export class BeamSystem {
     this._qPitch  = new THREE.Quaternion();
 
     // HUD/focus
-    this.hitsThisFrame   = 0;
-    this.focusedGhost    = null;
-    this.focusedWeight   = 0;
-    this.focusedDist     = Infinity;
+    this.hitsThisFrame   = 0;  // contatore hit -> quanti ghost sono stati cleansed 
+    this.focusedGhost    = null;  // bersaglio focus 
+    this.focusedWeight   = 0;  // peso (centratura + vicinanza) del ghost 
+    this.focusedDist     = Infinity;  // distanza del ghost focus 
     this.focusedExposure = 0;
 
     // Visual
-    this._baseOpacity = 0.18;
-    this._buildVisual();
+    this._baseOpacity = 0.18;  // opacità di base del cono 
+    this._buildVisual();  // costruzione della mesh additiva con mini-patch shader 
   }
 
   /* ============================================================================
@@ -174,101 +174,116 @@ export class BeamSystem {
    * @param {number} dt               Delta-time in secondi
    * @param {Iterable<any>} ghostsIterable  Collezione dei Ghost attivi
    */
-  update(dt, ghostsIterable) {
-    this._updateHeat(dt);
+  update(dt, ghostsIterable) {                         // Chiamato ogni frame: dt in secondi, iterable di Ghost
+    this._updateHeat(dt);                              // Aggiorna calore e stato overheated con isteresi
 
-    // Posizione apice smussata verso la camera
-    const camPos = this.camera.position;
-    if (this.smoothTau > 0) {
-      const a = 1 - Math.exp(-dt / this.smoothTau);
-      if (this._posSmooth.lengthSq() === 0) this._posSmooth.copy(camPos);
-      this._posSmooth.lerp(camPos, a);
+    // Posizione dell'emettitore 
+    const camPos = this.camera.position;               // Posizione attuale della camera
+    if (this.smoothTau > 0) {                          // Se smoothing abilitato
+      const a = 1 - Math.exp(-dt / this.smoothTau);    // Coefficiente esponenziale (frame-rate indipendente)
+      if (this._posSmooth.lengthSq() === 0)            // Se è il primo frame (posizione non inizializzata)
+        this._posSmooth.copy(camPos);                  // Allinea subito la posizione smussata alla camera
+      this._posSmooth.lerp(camPos, a);                 // Interpola verso la camera con fattore a
     } else {
-      this._posSmooth.copy(camPos);
+      this._posSmooth.copy(camPos);                    // Nessun smoothing: copia diretta
     }
 
-    // Quaternion target = camera * yaw * pitch
-    this._rightCam.set(1, 0, 0).applyQuaternion(this.camera.quaternion).normalize();
-    this._qYaw.setFromAxisAngle(new THREE.Vector3(0, 1, 0), this.yawOffset);
-    this._qPitch.setFromAxisAngle(this._rightCam, this.pitchOffset);
-    this._qTarget.copy(this.camera.quaternion).multiply(this._qYaw).multiply(this._qPitch);
+    // Orientamento del beam : parte dal quaternion della camera e applica offset di mira 
+    this._rightCam.set(1, 0, 0)                        // Vettore “right” di base
+      .applyQuaternion(this.camera.quaternion)         // Rotato nello spazio della camera
+      .normalize();                                    // Normalizza (unitario)
+    this._qYaw.setFromAxisAngle(                       // Costruisci quaternion di yaw
+      new THREE.Vector3(0, 1, 0), this.yawOffset
+    );
+    this._qPitch.setFromAxisAngle(this._rightCam, this.pitchOffset); // Quaternion di pitch intorno al right camera
+    this._qTarget.copy(this.camera.quaternion)         // qTarget = qCamera
+      .multiply(this._qYaw)                            //           * qYaw
+      .multiply(this._qPitch);                         //           * qPitch (ordine importante)
 
-    // Smoothing della quaternion del beam
-    const aQ = this.smoothTau > 0 ? (1 - Math.exp(-dt / this.smoothTau)) : 1.0;
-    this._beamQuatSmooth.slerp(this._qTarget, aQ);
+    const aQ = this.smoothTau > 0                      // Coefficiente esponenziale per smoothing quaternion
+      ? (1 - Math.exp(-dt / this.smoothTau))
+      : 1.0;
+    this._beamQuatSmooth.slerp(this._qTarget, aQ);     // Slerp: porta orientamento beam verso il target smussato
 
-    // Fuori aiming: ritorno morbido verso 0 di yaw/pitch
-    if (!this.aiming) {
-      const k = Math.exp(-dt / this.recenterTau);
-      this.yawOffset   *= k;
-      this.pitchOffset *= k;
+    if (!this.aiming) {                                // Se non stai mirando
+      const k = Math.exp(-dt / this.recenterTau);      // Fattore di decadimento → ritorno a 0 degli offset
+      this.yawOffset   *= k;                           // Rientro morbido yaw
+      this.pitchOffset *= k;                           // Rientro morbido pitch
     }
 
-    // Forward derivata dalla quaternion smussata
-    this._fwdSmooth.set(0, 0, -1).applyQuaternion(this._beamQuatSmooth).normalize();
+    // Forward del beam : -Z ruotato dalla quaterion smussata
+    this._fwdSmooth                                   // Calcola forward del beam
+      .set(0, 0, -1)                                  // Vettore -Z
+      .applyQuaternion(this._beamQuatSmooth)          // Ruotato con la quaternion smussata del beam
+      .normalize();                                   // Normalizza
 
-    // Reset frame
-    let visualLen = this.maxRange;
-    this.hitsThisFrame   = 0;
-    this.focusedGhost    = null;
-    this.focusedWeight   = 0;
-    this.focusedDist     = Infinity;
-    this.focusedExposure = 0;
+    // Scansione e scelta del bersaglio 
+    let visualLen = this.maxRange;                     // Lunghezza visuale iniziale = portata massima (accorciata dopo)
+    this.hitsThisFrame   = 0;                          // Reset telemetria “hit nel frame”
+    this.focusedGhost    = null;                       // Reset bersaglio focus
+    this.focusedWeight   = 0;                          // Reset peso focus
+    this.focusedDist     = Infinity;                   // Reset distanza focus
+    this.focusedExposure = 0;                          // Reset exposure focus
 
-    // Calcolo exposure
-    if (this.enabled && this.firing && !this.overheated && ghostsIterable) {
-      for (const g of ghostsIterable) {
-        if (!g || !g.root || g.state !== 'active') continue;
+    if (this.enabled && this.firing                    // Processa solo se attivo, stai sparando
+        && !this.overheated && ghostsIterable) {       // non overheated e c’è una lista di Ghost
+      for (const g of ghostsIterable) {                // Itera tutti i Ghost
+        if (!g || !g.root || g.state !== 'active')     // Skippa null/non attivi/ senza root
+          continue;
 
-        // Punto “aim” (un po’ sopra il terreno)
-        const aim = this._tmpV.copy(g.root.position);
-        aim.y += 1.0;
+        const aim = this._tmpV.copy(g.root.position);  // Punto da mirare = posizione ghost
+        aim.y += 1.0;                                  // Alzato di 1m (evita colpire il terreno)
 
-        // Vettore apice→ghost
-        const to   = this._tmpV.clone().subVectors(aim, this._posSmooth);
-        const dist = to.length();
-        if (dist > this.maxRange || dist < 1e-3) continue;
-        to.multiplyScalar(1 / dist);
+        const to   = this._tmpV.clone()                // Vettore apice→ghost
+          .subVectors(aim, this._posSmooth);
+        const dist = to.length();                      // Distanza apice-ghost
+        if (dist > this.maxRange || dist < 1e-3)       // Fuori portata o troppo vicino/degenerato
+          continue;
+        to.multiplyScalar(1 / dist);                   // Normalizza il vettore direzione
 
-        // Test nel cono (dot con forward del beam)
-        const cosAng = to.dot(this._fwdSmooth);
-        if (cosAng < this._cosHalf) continue;
+        const cosAng = to.dot(this._fwdSmooth);        // Coseno angolo con la forward del beam
+        if (cosAng < this._cosHalf)                    // Se sotto soglia: è fuori dal cono -> scarta 
+          continue;
 
-        // Line-of-sight (facoltativo)
-        if (!this._hasLOS(this._posSmooth, aim, dist)) continue;
+        if (!this._hasLOS(this._posSmooth, aim, dist)) // Se non c’è Line-of-Sight libera, salta
+          continue;
 
-        // Peso combinato: “centratura” nel cono + vicinanza
-        const wAngle = (cosAng - this._cosHalf) / (1 - this._cosHalf);
-        const wDist  = 1 - (dist / this.maxRange);
-        const weight = THREE.MathUtils.clamp(0.5 * wAngle + 0.5 * wDist, 0, 1);
+        const wAngle = (cosAng - this._cosHalf) /      // Peso angolare: 0 al bordo, 1 perfettamente centrato
+                        (1 - this._cosHalf);
+        const wDist  = 1 - (dist / this.maxRange);     // Peso distanza: 1 vicino, 0 a maxRange
+        const weight = THREE.MathUtils.clamp(           // Peso finale = media 50/50 (clamp in [0,1])
+          0.5 * wAngle + 0.5 * wDist, 0, 1
+        );
 
-        // Focus “miglior bersaglio”
-        if (weight > this.focusedWeight) {
+        if (weight > this.focusedWeight) {             // Aggiorna il ghost “focus” (miglior peso) !!
           this.focusedWeight = weight;
           this.focusedGhost  = g;
           this.focusedDist   = dist;
         }
 
-        // Exposure sul ghost
-        const cleansed = g.applyExposure(this.exposureRate * weight * dt);
-        if (cleansed) this.hitsThisFrame++;
+        const cleansed = g.applyExposure(              // Applica esposizione al ghost (scala con weight e dt)
+          this.exposureRate * weight * dt
+        );
+        if (cleansed) this.hitsThisFrame++;            // Se il ghost ha raggiunto “clean”, conta l’hit
 
-        // Troncamento visuale sul primo ostacolo/ghost colpito più vicino
-        if (dist < visualLen) visualLen = dist;
+        if (dist < visualLen)                          // Accorcia il cono visuale al primo bersaglio utile
+          visualLen = dist;
       }
 
-      // HUD exposure corrente
-      this.focusedExposure = this.focusedGhost ? (this.focusedGhost.exposure || 0) : 0;
+      this.focusedExposure =                           // Aggiorna exposure corrente del ghost focus (per HUD)
+        this.focusedGhost ? (this.focusedGhost.exposure || 0) : 0;
 
-      // Breve pulse del ring del ghost “focus” quando stai sparando
-      if (this.firing && this.focusedGhost && this.focusedGhost._ring) {
-        this.focusedGhost._ring.pulseT = Math.max(this.focusedGhost._ring.pulseT, 0.10);
+      if (this.firing && this.focusedGhost &&          // Piccolo “pulse” del ring del ghost focus quando spari
+          this.focusedGhost._ring) {
+        this.focusedGhost._ring.pulseT =
+          Math.max(this.focusedGhost._ring.pulseT, 0.10);
       }
     }
 
-    // Visual
-    this._updateVisual(visualLen);
+    this._updateVisual(visualLen);                     // Aggiorna la mesh del cono (pos/rot/scala/opacity)
   }
+
+
 
   /* ============================================================================
      Interni (visual / heat / LOS / reset)
@@ -276,22 +291,22 @@ export class BeamSystem {
 
   // Crea il cono additivo con un leggero fade verso la base
   _buildVisual() {
-    const geo = new THREE.ConeGeometry(1, 1, 36, 1, true);
+    const geo = new THREE.ConeGeometry(1, 1, 36, 1, true);  // Cono unitario 
     geo.translate(0, -0.5, 0); // apice all’origine, -Y asse del cono
 
-    const mat = new THREE.MeshBasicMaterial({
+    const mat = new THREE.MeshBasicMaterial({  // Materiale additivo e trasparente 
       color: 0xfff2b3,
       transparent: true,
       opacity: this._baseOpacity,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
-      side: THREE.DoubleSide,
-      fog: false,
+      side: THREE.DoubleSide, // visibile da dentro e fuori 
+      fog: false,  // ignora fog della scena 
       toneMapped: false
     });
 
     // Fade “soft” verso la base per ridurre l’impatto del disco frontale
-    mat.onBeforeCompile = (shader) => {
+    mat.onBeforeCompile = (shader) => {  // Patch shader per aggiungere un fade verso la base 
       shader.vertexShader = shader.vertexShader
         .replace('#include <common>', '#include <common>\nvarying float vConeT;')
         .replace('#include <uv_vertex>', '#include <uv_vertex>\n  vConeT = uv.y;');
@@ -300,7 +315,7 @@ export class BeamSystem {
         .replace('#include <common>', '#include <common>\nvarying float vConeT;')
         .replace(
           'gl_FragColor = vec4( outgoingLight, diffuseColor.a );',
-          'float fade = 1.0 - smoothstep(0.45, 1.0, vConeT);' +
+          'float fade = 1.0 - smoothstep(0.45, 1.0, vConeT);' +  // Fade forte vicino alla base 
           'gl_FragColor = vec4( outgoingLight, diffuseColor.a * (0.2 + 0.8 * fade) );'
         );
     };
@@ -312,50 +327,61 @@ export class BeamSystem {
     this.scene.add(this.cone);
   }
 
-  // Gestione surriscaldamento (heat 0..1 con isteresi hi/lo)
-  _updateHeat(dt) {
-    const wanting = this.firing && !this.overheated;
-    this.heat = THREE.MathUtils.clamp(
+  // Gestione surriscaldamento (heat 0..1 con isteresi hi/lo) -> Modello termico 
+  _updateHeat(dt) {  //Aggiorna il valore di calore e lo stato overheated 
+    const wanting = this.firing && !this.overheated;   // Vuoi davvero sparare e puoi ? 
+    this.heat = THREE.MathUtils.clamp(  // Aumenta o diminuisci heat in base a wanting 
       this.heat + (wanting ? this.heatRise : -this.heatFall) * dt,
       0, 1
     );
 
-    if (!this.overheated && this.heat >= this.overheatHi) this.overheated = true;
-    if (this.overheated  && this.heat <= this.overheatLo) this.overheated = false;
-    if (this.overheated) this.firing = false;
+    if (!this.overheated && this.heat >= this.overheatHi) this.overheated = true;  // Sali sopra soglia alta -> entra overheated 
+    if (this.overheated  && this.heat <= this.overheatLo) this.overheated = false;  // Scendi sotto soglia bassa -> esci overheated 
+    if (this.overheated) this.firing = false;  // Se overheated, disabilita il firing 
   }
 
   // Aggiorna la mesh del cono (posizione/orientamento/scala/opacity)
-  _updateVisual(length) {
-    if (!this.cone) return;
-    const show = this.firing && !this.overheated;
-    this.cone.visible = show;
-    if (!show) return;
+  _updateVisual(length) {                              // Aggiorna posizione/orientamento/scala/alpha del cono
+    if (!this.cone) return;                            // Se non esiste la mesh, esci
+    const show = this.firing && !this.overheated;      // Mostra solo se stai sparando e non overheated
+    this.cone.visible = show;                          // Aggiorna visibilità
+    if (!show) return;                                 // Se non visibile, niente altro
 
-    const len    = THREE.MathUtils.clamp(length, 0.5, this.maxRange);
-    const radius = Math.tan(THREE.MathUtils.degToRad(this.halfAngleDeg)) * len;
+    const len    = THREE.MathUtils.clamp(              // Altezza reale del cono (clampata)
+      length, 0.5, this.maxRange
+    );
+    const radius = Math.tan(                           // Raggio alla base dal mezzo angolo e lunghezza
+      THREE.MathUtils.degToRad(this.halfAngleDeg)
+    ) * len;
 
-    // apice un filo davanti alla camera smussata (evita near clipping)
-    const eps  = Math.max(0.05, Math.min(0.25, 0.02 * len));
-    const apex = this._posSmooth;
-    const fwd  = this._fwdSmooth;
+    const eps  = Math.max(0.05, Math.min(0.25, 0.02 * len)); // Piccolo offset dall’apice per evitare near-clip
+    const apex = this._posSmooth;                      // Apice smussato (posizione)
+    const fwd  = this._fwdSmooth;                      // Direzione smussata (forward)
 
-    this.cone.position.set(apex.x + fwd.x * eps, apex.y + fwd.y * eps, apex.z + fwd.z * eps);
-    // allinea -Y del cono alla forward del beam
-    this.cone.quaternion.setFromUnitVectors(this._upNeg, fwd);
-    this.cone.scale.set(radius, len, radius);
+    this.cone.position.set(                            // Posiziona la mesh un filo davanti all’apice
+      apex.x + fwd.x * eps,
+      apex.y + fwd.y * eps,
+      apex.z + fwd.z * eps
+    );
+    this.cone.quaternion.setFromUnitVectors(           // Allinea l’asse -Y del cono alla forward del beam
+      this._upNeg, fwd
+    );
+    this.cone.scale.set(radius, len, radius);          // Scala raggio/altezza del cono
 
-    // Opacità dinamica: meno invadente quando il cono è corto
-    const lenFactor = THREE.MathUtils.clamp(len / this.maxRange, 0, 1);
-    this.cone.material.opacity = this._baseOpacity * (0.35 + 0.65 * lenFactor);
+    const lenFactor = THREE.MathUtils.clamp(           // Fattore [0..1] proporzionale alla lunghezza relativa
+      len / this.maxRange, 0, 1
+    );
+    this.cone.material.opacity = this._baseOpacity *   // Opacità dinamica (meno “sparata” quando corto)
+      (0.35 + 0.65 * lenFactor);
 
-    this.cone.updateMatrixWorld(true);
+    this.cone.updateMatrixWorld(true);                 // Aggiorna matrici della mesh
   }
 
+
   // Line-of-sight contro una lista di ostacoli opzionale
-  _hasLOS(origin, aim, dist) {
+  _hasLOS(origin, aim, dist) {  // Verifica se c’è linea di vista libera tra origin e aim
     if (!this.obstacles || this.obstacles.length === 0) return true;
-    this._ray.set(origin, this._tmpV.copy(aim).sub(origin).normalize());
+    this._ray.set(origin, this._tmpV.copy(aim).sub(origin).normalize());    // Configura il raycaster
     this._ray.far = dist;
     const hit = this._ray.intersectObjects(this.obstacles, true);
     return hit.length === 0;

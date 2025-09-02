@@ -262,8 +262,8 @@ export class GhostSpawner {
    * quando il player è dentro il raggio del totem.
    */
   setDefenseHotspot({ pos, radius = 700, capBoost = 2, spawnIntervalMul = 0.6 } = {}){
-    if (!pos) { this._defense = null; return; }
-    this._defense = {
+    if (!pos) { this._defense = null; return; }  // se non passi la posizione, disattiva hotspot 
+    this._defense = {  // salvo posizione clonata 
       pos: pos.clone ? pos.clone() : new THREE.Vector3(pos.x, pos.y||0, pos.z),
       radius: Math.max(1, +radius || 1),
       capBoost: Math.max(0, capBoost|0),
@@ -333,18 +333,18 @@ export class GhostSpawner {
     const cp = this.camera.position;
     this._distAccum += Math.hypot(cp.x - this._lastCamPos.x, cp.z - this._lastCamPos.z);
     this._lastCamPos.copy(cp);
-    this._waveCooldown -= dt;
+    this._waveCooldown -= dt;  // conta alla rovescia il colldown delle ondate 
 
     // 2) Riciclo e culling
-    this._recycleInactive();
+    this._recycleInactive();   // rientra nel pool i ghost diventati inactive 
     this._cullByDistanceAndBehind(dt);
 
     // 3) Defense hotspot attivo?
-    const def = this._defense;
+    const def = this._defense;  // se esiuste un defense hotspot 
     const inDefense = !!(def && !this._pauseAggro &&
-      Math.hypot(cp.x - def.pos.x, cp.z - def.pos.z) <= def.radius);
-    this._capBoost    = inDefense ? (def.capBoost|0) : 0;
-    this._boostActive = inDefense;
+      Math.hypot(cp.x - def.pos.x, cp.z - def.pos.z) <= def.radius);   // se il player è dentro il raggio 
+    this._capBoost    = inDefense ? (def.capBoost|0) : 0;  // aumenta capBoost 
+    this._boostActive = inDefense;   // marca boostActive 
 
     // Se l’hotspot si spegne, rimuovi guard mode e torna a targettare il player
     if (!this._boostActive) {
@@ -361,10 +361,10 @@ export class GhostSpawner {
     }
 
     // 4) Spawn “a cadenza” (pausato durante purify)
-    if (!this._pauseAggro) {
-      this.spawnCooldown -= dt;
-      if (this.spawnCooldown <= 0 && this.active.size < this._getMaxAlive()) {
-        const spawned = this._trySpawnOne();
+    if (!this._pauseAggro) {  // se l'aggro non è in pausa 
+      this.spawnCooldown -= dt;   // scala il cooldown 
+      if (this.spawnCooldown <= 0 && this.active.size < this._getMaxAlive()) {  // se è scaduto e siamo sotto al cap 
+        const spawned = this._trySpawnOne();  // tenta spawn 
         const base = this.params.spawnInterval;
         const mul  = (inDefense ? (def?.spawnIntervalMul ?? 1) : 1);
         this.spawnCooldown = spawned ? (base * mul) : Math.max(0.5, base * 0.25);
@@ -376,19 +376,19 @@ export class GhostSpawner {
 
     // 5) Wave by distance
     const w = this.params.wave;
-    if (!this._pauseAggro && w.byDistance && this._waveCooldown <= 0 && this._distAccum >= w.meters) {
+    if (!this._pauseAggro && w.byDistance && this._waveCooldown <= 0 && this._distAccum >= w.meters) { // se camminato abbastanza e il cooldown ondate è finito 
       const want = randInt(w.countMin, w.countMax);
       for (let i=0; i<want; i++) {
-        if (this.active.size >= this._getMaxAlive()) break;
-        if (!this._trySpawnOne()) break;
+        if (this.active.size >= this._getMaxAlive()) break;  
+        if (!this._trySpawnOne()) break;  // prova a spawnare 2-3 ghost (entro il cap )
       }
-      this._distAccum = 0;
-      this._waveCooldown = Math.max(0.5, w.minInterval + (Math.random()*2 - 1) * w.jitter);
+      this._distAccum = 0;  // resetta distanza 
+      this._waveCooldown = Math.max(0.5, w.minInterval + (Math.random()*2 - 1) * w.jitter);   // nuovo cooldown con il jitter 
     }
 
     // 6) Avanza i ghost + eventi (es. onGhostCleansed)
     for (const g of this.active) {
-      if (this._pauseAggro && typeof g.setPacified === 'function') g.setPacified(true);
+      if (this._pauseAggro && typeof g.setPacified === 'function') g.setPacified(true);  // se pausa aggro -> pacifica i ghost 
       if (!this._pauseAggro && typeof g.setPacified === 'function') g.setPacified(false);
       g.update?.(dt);
 
@@ -451,22 +451,22 @@ export class GhostSpawner {
     this._getForwardXZ();
 
     this._proj.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);
-    this._frustum.setFromProjectionMatrix(this._proj);
+    this._frustum.setFromProjectionMatrix(this._proj);  // costruisce frustum di camera per test "on screen"
 
     const farCull = this.params.farCull;
     const behDist = this.params.despawnBehindDist;
     const behTime = this.params.behindTime;
     const minBehindRange = this.params.minBehindRange;
 
-    for (const g of Array.from(this.active)) {
-      const gx = g.root.position.x, gz = g.root.position.z;
-      const dx = gx - pCam.x, dz = gz - pCam.z;
+    for (const g of Array.from(this.active)) {  // per tutti i ghost attivi 
+      const gx = g.root.position.x, gz = g.root.position.z;   // posizione del ghost 
+      const dx = gx - pCam.x, dz = gz - pCam.z;  // distanza tra il ghost e la camera del player 
       const dist = Math.hypot(dx, dz);
 
       const until = this._protectUntil.get(g) ?? 0;
       const inProtect = (this._time < until);
 
-      // troppo lontani
+      // troppo lontani -> despawn immediato
       if (dist > farCull) {
         (this.params.despawnStyle === 'cleanse') ? this._despawnCleanse(g) : this._despawnImmediate(g);
         continue;
@@ -474,10 +474,10 @@ export class GhostSpawner {
 
       // alle spalle, lontani dallo schermo e non protetti → timer di despawn
       const exposure = +g.exposure || 0;
-      if (!inProtect && exposure <= 0.05) {
-        const s = this._forward.x * dx + this._forward.z * dz; // proiezione lungo forward
+      if (!inProtect && exposure <= 0.05) {  // se non è in protezione e ha bassa exposure 
+        const s = this._forward.x * dx + this._forward.z * dz; // proiezione del vettore ghost-camera lungo forward
         const onScreen = this._frustum.containsPoint(g.root.position);
-        if (s < -behDist && dist > minBehindRange && !onScreen) {
+        if (s < -behDist && dist > minBehindRange && !onScreen) {  // se è molto negativo, allora< è dietro 
           const t = (this._behindTimers.get(g) || 0) + dt;
           this._behindTimers.set(g, t);
           if (t >= behTime) {
@@ -498,8 +498,8 @@ export class GhostSpawner {
 
   /** Prova a spawnare un singolo ghost secondo le regole correnti. */
   _trySpawnOne(){
-    if (this.pool.length === 0) return false;
-    if (this._pauseAggro) return false;
+    if (this.pool.length === 0) return false;  // niente pool -> non si può spawnare
+    if (this._pauseAggro) return false;  // pausa aggro attiva
 
     // Centro di spawn: totem se boost attivo, altrimenti player
     const focus = this.camera?.position;
@@ -510,16 +510,16 @@ export class GhostSpawner {
 
     const tries = this.params.maxTriesPerTick;
     for (let i = 0; i < tries; i++) {
-      const cand = this._sampleCandidate(center);
+      const cand = this._sampleCandidate(center);  // campiona una posizione candidata 
       if (!cand) continue;
-      if (this._rejectByRules(cand, focus)) continue;
+      if (this._rejectByRules(cand, focus)) continue;  // filtri per troppo vicino al player, sovrapposizioni ecc 
 
-      const g = this._getFromPool();
+      const g = this._getFromPool();  // estrae un ghost dal pool 
       if (!g) return false;
 
-      g.resetKinematics?.();
+      g.resetKinematics?.();   // reset kinematics 
       g.setPosition(cand.x, cand.y, cand.z).addTo(this.scene);
-      g.appear();
+      g.appear();  // ghost entrea in appearing 
 
       // Guard mode: orbita e “chase” situazionale intorno al totem
       if (this._boostActive && this._defense?.pos) {
@@ -590,10 +590,13 @@ export class GhostSpawner {
   _sampleCandidate(center){
     const { minR, maxR, spawnMode, sectorHalfAngleDeg } = this.params;
 
-    const dir2D = this._pickDirection2D(spawnMode);
+    const dir2D = this._pickDirection2D(spawnMode);  // direzione base del settore 
+    
+    // jitter angolare - apertura del settore 
     const half = THREE.MathUtils.degToRad(sectorHalfAngleDeg);
     const jitter = (rand01() * 2 - 1) * half;
 
+    // In pratica, non tutti i candidati cadono perfettamente "davanti" - li sparpaglia entro +/- sectorHalfAngleDeg 
     const cosJ = Math.cos(jitter), sinJ = Math.sin(jitter);
     const rx = dir2D.x * cosJ - dir2D.z * sinJ;
     const rz = dir2D.x * sinJ + dir2D.z * cosJ;
@@ -611,6 +614,7 @@ export class GhostSpawner {
 
   /** Sceglie la direzione base (F/B/L/R) o random/mix. */
   _pickDirection2D(mode){
+    // 4 assi cardinali rispetto alla camera 
     const F = this._forward;
     const R = this._right;
     const B = new THREE.Vector3(-F.x, 0, -F.z);
@@ -627,6 +631,7 @@ export class GhostSpawner {
           const ang = Math.random() * Math.PI * 2;
           return new THREE.Vector3(Math.cos(ang), 0, Math.sin(ang));
         }
+        // Mix pesata 
         const w = this.params.mixWeights || {};
         const wf = Math.max(0, +w.front  || 0);
         const wb = Math.max(0, +w.behind || 0);
@@ -647,7 +652,7 @@ export class GhostSpawner {
     const { minPlayerDist, minSeparation, antiPopIn } = this.params;
 
     const cam = this.camera?.position || focus;
-    if (!cam) return true;
+    if (!cam) return true;  
 
     // 1) mai troppo vicino al player
     if (Math.hypot(p.x - cam.x, p.z - cam.z) < minPlayerDist) return true;
@@ -658,7 +663,7 @@ export class GhostSpawner {
       if (Math.hypot(p.x - gx, p.z - gz) < minSeparation) return true;
     }
 
-    // 3) anti pop-in (non far apparire sotto gli occhi e vicinissimo)
+    // 3) anti pop-in (non far apparire sotto gli occhi e vicinissimo) -> evita apparizioni in faccia 
     if (antiPopIn) {
       this._proj.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);
       this._frustum.setFromProjectionMatrix(this._proj);

@@ -7,7 +7,7 @@ export function patchGhostMaterial(mat, opts = {}) {
 
   const threshold     = opts.threshold     ?? 0.98;  // Soglia base del dissolve 
   const edgeWidth     = opts.edgeWidth     ?? 0.035; // Spessore banda del bordo 
-  const edgeColor     = new THREE.Color(opts.edgeColor ?? 0x66ffff);  
+  const edgeColor     = new THREE.Color(opts.edgeColor ?? 0x66ffff);  // colore emissivo del bordo
   const noiseScale    = opts.noiseScale    ?? 1.1;   // Scala spaziale del rumore 
   const flowSpeed     = opts.flowSpeed     ?? 0.6;   // Velocità scorrimento rumore 
   const thresholdBias = opts.thresholdBias ?? 0.0;   // Offset additivo alla soglia 
@@ -23,7 +23,7 @@ export function patchGhostMaterial(mat, opts = {}) {
     uDebugMode:     { value: 0.0 },
     uThresholdBias: { value: thresholdBias }, 
   };
-  mat.userData._ghostUniforms = uniforms;
+  mat.userData._ghostUniforms = uniforms;  // salva uniforms in userData 
   mat.userData._ghostPatched = true;
   mat.userData._dbgCompileCount = 0;
 
@@ -34,6 +34,8 @@ export function patchGhostMaterial(mat, opts = {}) {
     return prevKeyFn ? `${prevKeyFn()};${k}` : k;
   };
 
+
+  // onBeforeCompile è un hook chiamato da Three.js quando sta per compilare il programma 
   mat.onBeforeCompile = (shader) => {
     mat.userData._dbgCompileCount++;
     Object.assign(shader.uniforms, uniforms);  // inserisce le uniform del dissolve nello shader 
@@ -51,6 +53,7 @@ export function patchGhostMaterial(mat, opts = {}) {
       #define ENABLE_DEBUG_VIEWS ${DEBUG_VIEWS ? 1 : 0}
     `;
 
+    // Rumore 3D 
     const injectCommon = `
       varying vec3 vWorldPos;
       uniform float uThreshold;
@@ -67,6 +70,8 @@ export function patchGhostMaterial(mat, opts = {}) {
         p *= 17.0;
         return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
       }
+      
+      // value noise trilineare 
       float vnoise(vec3 p){
         vec3 i = floor(p);
         vec3 f = fract(p);
@@ -87,6 +92,8 @@ export function patchGhostMaterial(mat, opts = {}) {
         float nxy1 = mix(nx01, nx11, f.y);
         return mix(nxy0, nxy1, f.z);
       }
+
+      // Fractal Brownian Motion
       float fbm(vec3 p){
         float a = 0.5;
         float f = 1.0;
@@ -106,13 +113,14 @@ export function patchGhostMaterial(mat, opts = {}) {
     // blocco principale (rinominato gh_* per non collidere con altri chunk)
     const preBlock = `
     {
-      vec3  gh_p   = vWorldPos * uNoiseScale + vec3(0.0, 0.0, uPulseTime * uFlowSpeed);
-      float gh_n   = clamp(fbm(gh_p), 0.0, 1.0);
-      float gh_thr = clamp(uThreshold + uThresholdBias, 0.0, 1.0);  
-      float gh_w   = uEdgeWidth;
-      float gh_aa  = fwidth(gh_n) * 2.0;
+      // uPulseTime * uFlowSpeed : il campo di rumore scorre -> dissolve vivo e dinamico ! 
+      vec3  gh_p   = vWorldPos * uNoiseScale + vec3(0.0, 0.0, uPulseTime * uFlowSpeed);  // punto nel campo di rumore 
+      float gh_n   = clamp(fbm(gh_p), 0.0, 1.0);  // valore fbm 
+      float gh_thr = clamp(uThreshold + uThresholdBias, 0.0, 1.0);  // soglia con bias 
+      float gh_w   = uEdgeWidth;  // spessore bordo desiderato 
+      float gh_aa  = fwidth(gh_n) * 2.0;   // anti-alias adattivo 
 
-      float gh_edge = 1.0 - smoothstep( gh_w, gh_w + gh_aa, abs(gh_n - gh_thr) );
+      float gh_edge = 1.0 - smoothstep( gh_w, gh_w + gh_aa, abs(gh_n - gh_thr) );   //maschera banda del borso attorno alla soglia 
 
       g_n = gh_n; g_thr = gh_thr; g_w = gh_w; g_edge = gh_edge;
 
@@ -122,6 +130,7 @@ export function patchGhostMaterial(mat, opts = {}) {
       }
     }`;
 
+    // debug views - approx 1 -> valore noise (grigio), approx 2 -> maschera visibilità (0/1),  approx 3 -> intensità del bordo
     const postBlock = `
       #if ENABLE_DEBUG_VIEWS
         if (uDebugMode > 0.5 && uDebugMode < 1.5) {

@@ -565,14 +565,14 @@ export class Ghost {
     this.rig.rotation.y = this.yaw;
   }
 
-  // Materializzazione fantasma con dissolve morbido 
+  // Materializzazione fantasma con dissolve morbido da invisible -> visibile 
   _updateAppearing(dt) {
-    const d = this.params.appearDuration || 1.0;
-    const t = THREE.MathUtils.clamp(this.tState / d, 0, 1);
-    const k = t * t * (3 - 2 * t);   // Easing per partenza morbida 
-    const thr = THREE.MathUtils.lerp(0.98, 0.25, k);
-    this._setThreshold(thr);
-    if (t >= 1 || thr <= 0.26) this.activate();
+    const d = this.params.appearDuration || 1.0;   // durata totale della fase di apparizione
+    const t = THREE.MathUtils.clamp(this.tState / d, 0, 1);    // normalizza tempo interno [0..1]
+    const k = t * t * (3 - 2 * t);   // easing (Hermite) per transizione morbida
+    const thr = THREE.MathUtils.lerp(0.98, 0.25, k);   // threshold da alto (quasi invisibile) a basso (visibile)
+    this._setThreshold(thr);  // applica la soglia al materiale (dissolve)
+    if (t >= 1 || thr <= 0.26) this.activate();   // quando finito -> attiva stato active()
   }
 
 
@@ -586,9 +586,9 @@ export class Ghost {
       const cx = this._pacifyZone.center.x, cz = this._pacifyZone.center.z;
       const dx = this.root.position.x - cx;
       const dz = this.root.position.z - cz;
-      const r  = Math.hypot(dx, dz);
-      const minR = (this._pacifyZone.radius || 0) + 2.0;
-      if (r < Math.max(0.01, minR)) {
+      const r  = Math.hypot(dx, dz);  // distanza dal centro della zona di pacificazione
+      const minR = (this._pacifyZone.radius || 0) + 2.0;  // margine extra 
+      if (r < Math.max(0.01, minR)) {  // se è troppo vicino, spingilo fuori 
         const nx = dx / (r || 1e-6), nz = dz / (r || 1e-6);  
         const push = (minR - r);
         this.root.position.x += nx * push;
@@ -596,7 +596,7 @@ export class Ghost {
       }
     }
 
-    // Target
+    // Target da inseguire 
     if (typeof this.getTargetPos !== 'function') return;
     const target = this.getTargetPos();
     if (!target) return;
@@ -606,11 +606,12 @@ export class Ghost {
     _dir.y = 0;
     const dist = _dir.length();
     if (!isFinite(dist) || dist < 1e-6) return;
-    _dir.multiplyScalar(1 / dist);
+    _dir.multiplyScalar(1 / dist);  // normalizza direzione 
+ 
+    const yawRate = THREE.MathUtils.degToRad(this.params.yawRateDeg || 720);   // max turn rate in rad/s  
+    let kTurn = Math.min(1, yawRate * dt);  // fattore di interpolazione in base al dt 
 
-    const yawRate = THREE.MathUtils.degToRad(this.params.yawRateDeg || 720);
-    let kTurn = Math.min(1, yawRate * dt);
-
+    // Se è in "snap" (allineamento veloce) -> aggancio diretto
     if (this._alignSnapT > 0) {
       this.vel.copy(_dir);
       const yawTarget = Math.atan2(_dir.x, _dir.z);
@@ -618,12 +619,14 @@ export class Ghost {
       this.rig.rotation.y = this.yaw;
       this._alignSnapT -= dt;
     } else {
+      // Movimento normale 
       if (dist >= this.params.hardLockDist) {
-        this.vel.copy(_dir);
-      } else {
+        this.vel.copy(_dir);  // lontano -> movimento diretto
+      } else {  // Vicino → turn rate graduale
         if (this.vel.lengthSq() < 1e-6) {
-          this.vel.copy(_dir);
+          this.vel.copy(_dir);  // se fermo -> allinea subito 
         } else {
+          // Altrimenti interpola la direzione 
           const cur = _tmpV.copy(this.vel).normalize();
           const cosA = THREE.MathUtils.clamp(cur.dot(_dir), -1, 1);
           const ang = Math.acos(cosA);
@@ -642,18 +645,21 @@ export class Ghost {
       }
     }
 
-    // Velocità & inseguimento (arrive/stop)
+    // Velocità & inseguimento : boost se lontano 
     let spd = this.params.speed;
     if (dist > this.swoop.far) spd *= this.params.burstMultiplier;
 
+    // Logica arrive/stop : si ferma a keepDistance
     const stop    = Math.max(0, this.params.keepDistance || 0);
     const arriveR = Math.max(1e-3, this.params.arriveRadius || 0.03);
     const desired = Math.max(0, dist - stop);
 
     if (desired <= arriveR) {
+      // Arrivato vicino -> snap alla posizione di stop 
       this.root.position.x = target.x - _dir.x * stop;
       this.root.position.z = target.z - _dir.z * stop;
     } else {
+      // Altrimenti muovi con velocità * direzione 
       const step = spd * dt;
       this.root.position.x += this.vel.x * step;
       this.root.position.z += this.vel.z * step;
@@ -664,6 +670,7 @@ export class Ghost {
       if (this.vel.lengthSq() > 1e-6) _right.set(this.vel.z, 0, -this.vel.x).normalize();
       else                             _right.set(_dir.z, 0, -_dir.x).normalize();
 
+      // Ampiezza diminuisce verso il target 
       const kDist = THREE.MathUtils.clamp((dist - this.weave.fadeNear) / Math.max(1e-3, (this.weave.fadeFar - this.weave.fadeNear)), 0, 1);
       const kNear = THREE.MathUtils.clamp(desired / (arriveR * 1.5), 0, 1);
 
@@ -687,12 +694,13 @@ export class Ghost {
     this.root.position.y = THREE.MathUtils.lerp(this.root.position.y, yTarget, yK);
   }
 
+  // Dissolvenza quando viene colpito (fase cleansing)
   _updateCleansing(dt) {
     const d = this.params.cleanseDuration || 0.8;
     const t = THREE.MathUtils.clamp(this.tState / d, 0, 1);
     const k = t * t * (3 - 2 * t);
     const start = Math.max(0.25, this._getThreshold());
-    const thr = THREE.MathUtils.lerp(start, 0.98, k);
+    const thr = THREE.MathUtils.lerp(start, 0.98, k);  // torna a soglia alta 
     this._setThreshold(thr);
     if (t >= 1 || thr >= 0.97) this.deactivate();
   }

@@ -72,7 +72,7 @@ export class SanctuarySystem {
 
     // Config
     this.modelUrl     = opts.modelUrl;
-    this.itemsDef     = opts.items || [];
+    this.itemsDef     = opts.items || [];   // array di items (posizioni e parametri dei singoli totem)
     this.decayRate    = opts.decayRate ?? 0.25;
     this.targetHeight = opts.targetHeight ?? 200.5; // cm
     this.entryPad     = opts.entryPad ?? 8.0;
@@ -114,9 +114,9 @@ export class SanctuarySystem {
 
   async init(){
     const loader = new FBXLoader();
-    this._fbx = await loader.loadAsync(this.modelUrl);
+    this._fbx = await loader.loadAsync(this.modelUrl);  // load fbx 
 
-    // Normalizza materiali del modello base (emissive off all’inizio)
+    // Normalizza materiali del modello base (emissive off all’inizio) 
     this._fbx.traverse(o=>{
       if (!o.isMesh) return;
       o.castShadow = true;
@@ -137,25 +137,25 @@ export class SanctuarySystem {
     });
 
     // Istanze dei santuari
-    for (let i = 0; i < this.itemsDef.length; i++){
+    for (let i = 0; i < this.itemsDef.length; i++){  // per ogni totem
       const def  = this.itemsDef[i];
-      const root = new THREE.Group();
+      const root = new THREE.Group();  // Crea un group alla posizione XZ 
       root.position.set(def.x, 0, def.z);
       this.scene.add(root);
 
-      const model = this._fbx.clone(true);
-      cloneMaterialsPerMesh(model);
-      const finalH = fitObjectToHeight(model, def.targetHeight ?? this.targetHeight);
+      const model = this._fbx.clone(true);  // clona il modello 
+      cloneMaterialsPerMesh(model);   // clona i materiali -> così l'emissive di un totem non sporca gli altri 
+      const finalH = fitObjectToHeight(model, def.targetHeight ?? this.targetHeight);  // adatta la scala a un'altezza target e appoggia la base a terra 
       root.add(model);
 
-      // Collider statico (per camera/occlusion)
+      // Collider statico (per camera/occlusion)  -> serve per occluder/ostacolo 
       const bbox   = new THREE.Box3().setFromObject(model);
       const size   = new THREE.Vector3(); bbox.getSize(size);
       const rXZ    = 0.5 * Math.max(size.x, size.z);
       const colRad = Math.max(12, rXZ * 0.65);
       const colH   = Math.max(30, size.y);
 
-      // Ring + glow + outline
+      // Ring (anello pieno tenute) + glow (esterno additivo) + outline (interno scuro)
       const rOuter = (def.radius != null) ? def.radius : 100;
       const rInner = Math.max(0.6 * rOuter, rOuter - 8.0);
 
@@ -187,7 +187,7 @@ export class SanctuarySystem {
       ringGlow.position.y = 0.021;
       root.add(ringGlow);
 
-      // Beacon cilindrico
+      // Beacon cilindrico (si alza sopra il totem)
       const hBeacon  = Math.max(6, finalH * 2.8);
       const rBottom  = Math.max(0.6, rOuter * 0.12);
       const rTop     = Math.max(0.3, rOuter * 0.04);
@@ -198,7 +198,7 @@ export class SanctuarySystem {
       });
       const beacon = new THREE.Mesh(beaconGeo, beaconMat);
       const beaconInset = Math.max(0.6, rBottom * 0.65);
-      beacon.position.y = finalH + hBeacon * 0.5 - beaconInset;
+      beacon.position.y = finalH + hBeacon * 0.5 - beaconInset;  // sopra la testa del totem 
       root.add(beacon);
 
       // Luce di stato
@@ -247,17 +247,18 @@ export class SanctuarySystem {
    * @param {{playerPos:THREE.Vector3, overheated?:boolean, beamOn?:boolean}} ctx
    */
   update(dt, ctx = {}){
+    // ctx è la posizione del player 
     if (!this.beamSystem || this._sanct.length === 0) return;
 
     this._time += dt;
 
-    const beam    = this.beamSystem;
-    const cosHalf = Math.cos(THREE.MathUtils.degToRad(beam.halfAngleDeg));
-    beam.getBeamApex?.(this._apex);
-    beam.getBeamForward?.(this._beamDir);
+    const beam    = this.beamSystem;   // stato beam 
+    const cosHalf = Math.cos(THREE.MathUtils.degToRad(beam.halfAngleDeg));  // mezzo angolo del cono 
+    beam.getBeamApex?.(this._apex);   // apice del raggio del beam 
+    beam.getBeamForward?.(this._beamDir);  // direzione del raggio del beam
 
-    const obstacles = beam.obstacles || [];
-    const maxRange  = beam.maxRange || 9999;
+    const obstacles = beam.obstacles || [];  // ostacoli per linea di vista 
+    const maxRange  = beam.maxRange || 9999;  // portata massima del raggio 
 
     const inOverheat = !!ctx.overheated;
     const beamOn     = !!ctx.beamOn;
@@ -265,58 +266,64 @@ export class SanctuarySystem {
     let purifyingNow = 0;
     let safeNow      = 0;
 
-    for (let i = 0; i < this._sanct.length; i++){
+    for (let i = 0; i < this._sanct.length; i++){  // per ogni totem 
       const s = this._sanct[i];
-      if (s.state === 'done') { this._applyVisual(s, 1.0, 'done'); continue; }
+      if (s.state === 'done') { this._applyVisual(s, 1.0, 'done'); continue; }  // check se tutti i totem sono stati purificati 
 
       // 1) Player nel ring (con entryPad)
-      const dx = ctx.playerPos.x - s.root.position.x;
+      const dx = ctx.playerPos.x - s.root.position.x;  // distanza_x tra posizione del player e santuario 
       const dz = ctx.playerPos.z - s.root.position.z;
       const rad = s.radius + this.entryPad;
-      const inCircle = (dx*dx + dz*dz) <= (rad*rad);
+      const inCircle = (dx*dx + dz*dz) <= (rad*rad);  // sei nel cerchio ? 
 
       // 2) Totem nel cono + LOS
+      // aim è un punto mirabile del totem -> più in alto del centro, così da non mirare il pavimento 
       const aim = this._tmpV.set(s.root.position.x, s.root.position.y + s.aimYOffset, s.root.position.z);
-      const to  = this._tmpV2.subVectors(aim, this._apex);
-      const dist = to.length();
+      const to  = this._tmpV2.subVectors(aim, this._apex);  // vettore dall'apice del beam al punto 
+      const dist = to.length();  // distanza dall'apice del beam al punto 
       let inCone = false, losOK = false;
 
-      if (dist > 1e-3 && dist <= maxRange) {
-        to.multiplyScalar(1/dist);
-        inCone = (to.dot(this._beamDir) >= cosHalf);
-        if (inCone) {
-          if (obstacles.length === 0) {
+      if (dist > 1e-3 && dist <= maxRange) {   // se il punto è entro portata  
+        to.multiplyScalar(1/dist);  // normalizza il punto dell'apice del beam al punto 
+        // Test angolare 
+        inCone = (to.dot(this._beamDir) >= cosHalf);  // vedo se l'angolo tra la direzione del beam e "to" è <= mezzo angolo del cono 
+        if (inCone) { // se è dentro al cono, verifica linea di vista (LOS)
+          if (obstacles.length === 0) {  // se obstacles è vuoto, allora ok 
             losOK = true;
-          } else {
+          } else {  // altrimenti, fai recast dall'apice ad aim -> fallisce se colpisce ostacoli 
             this._ray.set(this._apex, to); this._ray.far = dist;
             losOK = (this._ray.intersectObjects(obstacles, true).length === 0);
           }
         }
       }
 
+      // Hysteresis : Se in questo frame entri nel cono con LOS valida, "agganci" la mira per un piccolo delta : se il mouse trema non perdi subito la mira 
       if (inCone && losOK) s.aimStickUntil = this._time + this.aimStick;
 
-      const aimOK        = (inCone || (this._time < s.aimStickUntil)) && losOK;
+      const aimOK        = (inCone || (this._time < s.aimStickUntil)) && losOK;  
       const canPoint     = inCircle && aimOK;
-      const canChargeNow = canPoint && beamOn && !inOverheat;
+      const canChargeNow = canPoint && beamOn && !inOverheat; // puoi caricare solo se punti, il beam è ON e non sei overheated 
 
+      // Grace : dopo avere purificato, per un piccolo intervallo, mantieni la possibilità di caricare anche se per un attimo hai perso il beam 
       const stillInGrace = inCircle && (this._time - s.lastPurifyT) <= this.purifyGrace;
       const canCharge    = canChargeNow || stillInGrace;
 
+      // caricamento 
       if (canCharge) {
         s.state  = 'purifying';
-        s.charge = Math.min(s.holdSeconds, s.charge + dt);
+        s.charge = Math.min(s.holdSeconds, s.charge + dt);  // accumula carica 
         s._spawnTick += dt;
         s.lastPurifyT = this._time;
         purifyingNow++;
         safeNow++;
-      } else {
+      } else {  // Se resti nel ring, la carica decade lentamente 
         s.state  = inCircle ? 'armed' : 'idle';
         if (!stillInGrace) s.charge = Math.max(0, s.charge - this.decayRate * dt);
         s._spawnTick = 0;
         if (s.state === 'armed') safeNow++;
       }
 
+      // calcola il progress e aggiorna i materiali coerentemente allo stato 
       const t = THREE.MathUtils.clamp(s.charge / s.holdSeconds, 0, 1);
       this._applyVisual(s, t, s.state);
 
@@ -367,6 +374,7 @@ export class SanctuarySystem {
     }
   }
 
+  // Pittore del sistema - In base allo stato e alla progressione, modula ring e glow, beacon ed emissive del modello 
   _applyVisual(s, t, mode){
     const ringMat   = s.ring.material;
     const beaconMat = s.beacon.material;
@@ -374,16 +382,16 @@ export class SanctuarySystem {
 
     switch(mode){
       case 'idle': {
-        ringMat.color.copy(this._colIdle); ringMat.opacity = 0.25;
-        glowMat.color.copy(this._colIdle); glowMat.opacity = 0.10;
+        ringMat.color.copy(this._colIdle); ringMat.opacity = 0.25;  // blu tenue 
+        glowMat.color.copy(this._colIdle); glowMat.opacity = 0.10;  // blu tenue 
         beaconMat.color.copy(this._colIdle); beaconMat.opacity = 0.06;
         this._setModelEmissive(s.model, new THREE.Color(0x000000), 0.0);
         s.light.color.copy(this._colIdle); s.light.intensity = 0.0;
       } break;
 
       case 'armed': {
-        ringMat.color.copy(this._colArmed); ringMat.opacity = 0.28;
-        glowMat.color.copy(this._colArmed); glowMat.opacity = 0.12;
+        ringMat.color.copy(this._colArmed); ringMat.opacity = 0.28;  // rosso
+        glowMat.color.copy(this._colArmed); glowMat.opacity = 0.12;  // rosso
         beaconMat.color.copy(this._colArmed); beaconMat.opacity = 0.10;
         this._setModelEmissive(s.model, this._colArmed, 0.25);
         s.light.color.copy(this._colArmed); s.light.intensity = 0.4;
@@ -391,8 +399,8 @@ export class SanctuarySystem {
 
       case 'purifying': {
         const c = this._purifyColor(this._tmpC, t);
-        ringMat.color.copy(c);   ringMat.opacity   = 0.28 + 0.27 * t;
-        glowMat.color.copy(c);   glowMat.opacity   = 0.14 + 0.18 * t;
+        ringMat.color.copy(c);   ringMat.opacity   = 0.28 + 0.27 * t;  // giallo -> verde 
+        glowMat.color.copy(c);   glowMat.opacity   = 0.14 + 0.18 * t;  // giallo -> verde
         beaconMat.color.copy(c); beaconMat.opacity = 0.10 + 0.32 * t;
         this._setModelEmissive(s.model, c, 0.5 + 1.2 * t);
         s.light.color.copy(c);   s.light.intensity = 1.0 + 1.4 * t;

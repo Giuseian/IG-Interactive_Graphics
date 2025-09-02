@@ -34,14 +34,14 @@ export class WASDController {
   /** @param {WASDOpts} param0 */
   constructor({
     camera,
-    getGroundY = () => 0.0,
-    eyeHeight = 20,
-    speed = 50,
-    sprintMultiplier = 1.6,
-    accel = 12,
-    friction = 6,
-    bounds = null,
-    sensX = 0.002,
+    getGroundY = () => 0.0,  // altezza del terreno in un punto 
+    eyeHeight = 20,  // altezza degli “occhi” dal terreno
+    speed = 50,  // velocità base 
+    sprintMultiplier = 1.6,  // sprint 
+    accel = 12,  // accelerazione
+    friction = 6,  // attrito
+    bounds = null,  // limiti
+    sensX = 0.002,  // sensibilità del mouse 
     sensY = 0.002,
     pitchMin = -Math.PI/2 + 0.001,
     pitchMax =  Math.PI/2 - 0.001,
@@ -53,15 +53,15 @@ export class WASDController {
     this.params = { speed, sprintMultiplier, accel, friction, bounds, sensX, sensY, pitchMin, pitchMax };
 
     // --- stato movimento/orientamento ---
-    this.pos   = camera.position.clone();         // posizione “vera” che poi copiamo sulla camera
+    this.pos   = camera.position.clone();         // posizione “vera” che poi copiamo sulla camera -> sorgente di verità per i movimenti 
     this.vel   = new THREE.Vector3();             // velocità orizzontale (usiamo solo X/Z)
     this.keys  = new Set();                       // tasti attivi
     this.enabled = true;
 
     // Yaw/pitch iniziali dalla camera corrente (convenzione YXZ)
-    const e = new THREE.Euler().setFromQuaternion(this.camera.quaternion, 'YXZ');
-    this.yaw   = e.y;
-    this.pitch = e.x;
+    const e = new THREE.Euler().setFromQuaternion(this.camera.quaternion, 'YXZ');   // orientamento attuale della camera
+    this.yaw   = e.y;  // ricava yaw
+    this.pitch = e.x;  // ricava pitch 
 
     // scratch directions
     this._fwd   = new THREE.Vector3();
@@ -119,6 +119,7 @@ export class WASDController {
    * @param {number} dx deltaX in pixel
    * @param {number} dy deltaY in pixel
    */
+  // Il mouse non muove direttamente la camera, ma aggiorna solo gli angoli interni 
   onMouseDelta(dx, dy){
     if (!this.enabled) return;
     // FPS “naturale”: a destra → yaw aumenta; in su → pitch diminuisce (convenzione YXZ).

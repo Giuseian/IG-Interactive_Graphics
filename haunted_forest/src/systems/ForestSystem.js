@@ -178,7 +178,8 @@ export class ForestSystem {
     // === Punti su anello con pad “intelligente”
     const pts = this._generatePoints(this.cfg.count, sizePad);
 
-    // === Prepara bucket (type × material) per costruire InstancedMesh
+    // === Prepara bucket (type × material) per costruire InstancedMesh -> Pine.Trunk, Pine.Leaves 
+    // Attenzione !! Qui stiamo considerando un unico type di alberi : Pine ->  quindi avremo i due bucket sopra citati 
     /** @type {{ typeIdx:number, matIdx:number, geometry:THREE.BufferGeometry, material:THREE.Material, transforms:THREE.Matrix4[] }[]} */
     const buckets = [];
     for (let ti = 0; ti < this.typeProtos.length; ti++) {
